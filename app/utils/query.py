@@ -9,6 +9,7 @@ import json
 import csv
 from tqdm import tqdm
 import numpy as np
+from app.utils.pdf import extract_page_info_from_filename
 
 def process_query(query_text: str, model, processor, device="cuda:0") -> Optional[torch.Tensor]:
     """
@@ -97,16 +98,25 @@ def find_similar_images(
         # PRD 예시 코드에 맞게 구현: rag 함수 형태로 동작
         try:
             # PRD 코드 예시처럼 차원 조정없이 직접 processor.score_multi_vector 호출
+            print("쿼리 임베딩 shape:", query_embedding.shape)
+            print("첫 이미지 임베딩 shape:", image_embeddings_data['embeddings'][0].shape)
+            print("쿼리 임베딩 값(샘플):", query_embedding.flatten()[:5])
+            print("이미지 임베딩 값(샘플):", image_embeddings_data['embeddings'][0].flatten()[:5])
+
             scores = processor.score_multi_vector(query_embedding, image_embeddings_data["embeddings"])
+            print("score_multi_vector 결과:", scores)
             scores = scores[0].sort(descending=True)
             
             # 상위 k개 결과 추출
             results = []
             for i in range(min(top_k, len(scores.values))):
-                idx = scores.indices[i].item()  # 텐서에서 정수로 변환
+                idx = scores.indices[i].item()
+                file_name = image_embeddings_data["file_names"][idx]
+                page_info = extract_page_info_from_filename(Path(file_name).name)
+                real_page_num = page_info[1] if page_info else None
                 results.append({
-                    "file_name": image_embeddings_data["file_names"][idx],
-                    "page_num": image_embeddings_data["page_nums"][idx],
+                    "file_name": file_name,
+                    "page_num": real_page_num,
                     "score": float(scores.values[i]),
                     "doc_id": image_embeddings_data["doc_ids"][idx]
                 })

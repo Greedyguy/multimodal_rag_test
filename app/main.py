@@ -361,7 +361,7 @@ def show_images(knowledge_id):
         for i, image_file in enumerate(image_files):
             with cols[i % 3]:
                 try:
-                    st.image(str(image_file), caption=image_file.name, use_column_width=True)
+                    st.image(str(image_file), caption=image_file.name, use_container_width=True)
                 except Exception as e:
                     st.error(f"이미지 로드 중 오류: {e}")
     else:

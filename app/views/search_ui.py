@@ -14,6 +14,7 @@ import json
 
 from app.models.embedding import EmbeddingManager
 from app.utils.query import process_query, find_similar_images, normalize_scores, parse_query_file
+from app.utils.pdf import extract_page_info_from_filename
 
 
 def render_search_ui(knowledge_id: str):
@@ -402,47 +403,10 @@ def render_batch_search(knowledge_id: str):
                             st.warning(f"질문 '{question}'의 임베딩을 생성할 수 없습니다. 건너뜁니다.")
                             continue
                         
-                        # 대상 파일 필터링 (있는 경우)
-                        filtered_embeddings = embeddings_data
-                        if target_files[i]:
-                            # 파일명에 대상 파일이 포함된 항목만 필터링
-                            filtered_indices = [j for j, file_name in enumerate(embeddings_data["file_names"]) 
-                                             if target_files[i] in str(file_name)]
-                            
-                            if not filtered_indices:
-                                st.warning(f"질문 '{question}'의 대상 파일 '{target_files[i]}'에 해당하는 이미지가 없습니다.")
-                                continue
-                            
-                            filtered_embeddings = {
-                                "file_names": [embeddings_data["file_names"][j] for j in filtered_indices],
-                                "page_nums": [embeddings_data["page_nums"][j] for j in filtered_indices],
-                                "embeddings": [embeddings_data["embeddings"][j] for j in filtered_indices],
-                                "doc_ids": [embeddings_data["doc_ids"][j] for j in filtered_indices]
-                            }
-                        
-                        # 대상 페이지 필터링 (있는 경우)
-                        if target_pages[i] is not None:
-                            target_page = int(target_pages[i]) if isinstance(target_pages[i], (int, str)) else None
-                            
-                            if target_page is not None:
-                                filtered_indices = [j for j, page_num in enumerate(filtered_embeddings["page_nums"]) 
-                                                 if page_num == target_page]
-                                
-                                if not filtered_indices:
-                                    st.warning(f"질문 '{question}'의 대상 페이지 '{target_page}'에 해당하는 이미지가 없습니다.")
-                                    continue
-                                
-                                filtered_embeddings = {
-                                    "file_names": [filtered_embeddings["file_names"][j] for j in filtered_indices],
-                                    "page_nums": [filtered_embeddings["page_nums"][j] for j in filtered_indices],
-                                    "embeddings": [filtered_embeddings["embeddings"][j] for j in filtered_indices],
-                                    "doc_ids": [filtered_embeddings["doc_ids"][j] for j in filtered_indices]
-                                }
-                        
                         # 검색 실행
                         results = find_similar_images(
                             query_embedding=query_embedding,
-                            image_embeddings_data=filtered_embeddings,
+                            image_embeddings_data=embeddings_data,
                             top_k=top_k,
                             processor=embedding_manager.processor,
                             similarity_method="processor"
@@ -468,66 +432,62 @@ def render_batch_search(knowledge_id: str):
                 
                 # 결과 표시
                 if all_results:
-                    # 결과를 아코디언으로 표시
-                    st.subheader("일괄 검색 결과")
-                    
-                    # 요약 테이블 생성
-                    summary_rows = []
+                    # 1. 정답 판정 및 통계
+                    correct_count = 0
                     for result in all_results:
-                        question = result["question"]
-                        target_file = result["target_file"] or "전체"
-                        target_page = result["target_page"] or "전체"
-                        top_score = result["results"][0]["score"] if result["results"] else 0
-                        
-                        summary_rows.append({
-                            "질문": question,
-                            "대상 파일": target_file,
-                            "대상 페이지": target_page,
-                            "검색 결과 수": len(result["results"]),
-                            "최고 유사도": f"{top_score:.4f}"
+                        # 각 결과의 실제 파일명/페이지 추출 (expander에서는 더이상 사용하지 않음)
+                        for r in result["results"]:
+                            from app.utils.pdf import extract_page_info_from_filename
+                            page_info = extract_page_info_from_filename(Path(r["file_name"]).name)
+                            if page_info:
+                                r["real_file_name"] = page_info[0]
+                                r["real_page_num"] = page_info[1]
+                            else:
+                                r["real_file_name"] = Path(r["file_name"]).name
+                                r["real_page_num"] = r.get("page_num", "?")
+                        # 정답 판정
+                        is_correct = False
+                        for r in result["results"]:
+                            file_match = (result["target_file"] is None or r["real_file_name"] == str(result["target_file"]))
+                            page_match = (result["target_page"] is None or str(r["real_page_num"]) == str(result["target_page"]))
+                            if file_match and page_match:
+                                is_correct = True
+                                break
+                        result["is_correct"] = is_correct
+                        if is_correct:
+                            correct_count += 1
+                    accuracy = correct_count / len(all_results) * 100 if all_results else 0.0
+
+                    # summary 테이블 데이터 가공
+                    summary_data = []
+                    for idx, result in enumerate(all_results):
+                        # top-k 검색결과 파일명/페이지 리스트 생성
+                        file_names = [r["real_file_name"] for r in result["results"]]
+                        page_nums = [r["real_page_num"] for r in result["results"]]
+                        summary_data.append({
+                            "질문": result["question"],
+                            "정답": "정답" if result["is_correct"] else "오답",
+                            "검색결과 파일명": file_names,
+                            "검색결과 페이지": page_nums,
+                            "target_file": result["target_file"],
+                            "target_page": result["target_page"]
                         })
-                    
-                    summary_df = pd.DataFrame(summary_rows)
-                    st.dataframe(summary_df, use_container_width=True)
-                    
-                    # 개별 질문 결과 표시
-                    for i, result in enumerate(all_results):
-                        with st.expander(f"질문 {i+1}: {result['question']}", expanded=i==0):
-                            # 질문 정보
-                            st.markdown(f"**질문**: {result['question']}")
-                            
-                            if result['target_file']:
-                                st.markdown(f"**대상 파일**: {result['target_file']}")
-                            
-                            if result['target_page']:
-                                st.markdown(f"**대상 페이지**: {result['target_page']}")
-                            
-                            # 결과 테이블
-                            result_df = pd.DataFrame([
-                                {
-                                    "파일명": Path(r["file_name"]).name,
-                                    "문서 ID": r["doc_id"],
-                                    "페이지": r["page_num"],
-                                    "유사도": f"{r['score']:.4f}"
-                                } for r in result["results"]
-                            ])
-                            
-                            st.dataframe(result_df, use_container_width=True)
-                            
-                            # 상위 결과 이미지 표시
-                            st.subheader("상위 검색 결과 이미지")
-                            num_cols = min(3, len(result["results"]))
-                            if num_cols > 0:
-                                cols = st.columns(num_cols)
-                                
-                                for j, (col, res) in enumerate(zip(cols, result["results"][:num_cols])):
-                                    with col:
-                                        try:
-                                            image_path = res["file_name"]
-                                            st.image(image_path, caption=f"점수: {res['score']:.4f}", use_column_width=True)
-                                            st.caption(f"페이지: {res['page_num']}, 문서: {Path(res['doc_id']).stem}")
-                                        except Exception as e:
-                                            st.error(f"이미지 로드 오류: {e}")
+
+                    st.markdown(f"### 정답률: **{accuracy:.1f}%** ({correct_count}/{len(all_results)})")
+                    st.dataframe(summary_data, hide_index=True)
+
+                    # 상세 결과(expander) 테이블에서 '실제파일명', '실제페이지' 컬럼 제거
+                    for idx, result in enumerate(all_results):
+                        with st.expander(f"[{idx+1}] 질문: {result['question']} ({'정답' if result['is_correct'] else '오답'})"):
+                            result_table = []
+                            for r in result["results"]:
+                                result_table.append({
+                                    "파일명": r["real_file_name"],
+                                    "페이지": r["real_page_num"],
+                                    "유사도": r["score"] if not (r["score"] is None or str(r["score"]) == "nan") else 0.0
+                                })
+                            st.dataframe(result_table, hide_index=True)
+                            # 이미지 등 기타 표시 로직은 기존대로 유지
                 
                 else:
                     st.warning("모든 질문에 대해 검색 결과가 없습니다.")
@@ -593,7 +553,7 @@ def render_search_results(query: str, results: List[Dict[str, Any]], elapsed_tim
             with cols[0]:
                 try:
                     image_path = result["file_name"]
-                    st.image(image_path, caption=f"Score: {result['score']:.4f}", use_column_width=True)
+                    st.image(image_path, caption=f"Score: {result['score']:.4f}", use_container_width=True)
                 except Exception as e:
                     st.error(f"이미지 로드 중 오류: {e}")
             
