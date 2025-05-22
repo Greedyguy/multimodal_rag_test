@@ -1,0 +1,108 @@
+<context>
+#Overview
+여러개의 문서를 입력 받아서 이미지로 변환한 뒤 이미지 임베딩 벡터로 변환하여 저장해두고 사용자가 질문을 할 때 해당 질문을 답할 수 있는 이미지를 찾아서 결과로 출력해주는 Multimodal RAG 시스템
+
+#Core Features
+- input : 사용자의 질문에 답변하기 위한 Knowledge 파일들, 사용자가 쿼리를 입력하면 해당 쿼리를 답할 수 있는 문서내의 페이지를 찾아서 반환해야 함
+- search : 단일 질문 또는 파일 기반의 복수 질문 가능, 복수 질문의 경우 대규모 테스트를 위한 것으로 결과 요약이 함께 제공되어야 함
+- output : 단일 결과는 관련 문서 페이지 이미지로, 복수 질문은 테스트 결과 요약과 이미지를 같이 제공되어야 함
+
+#User Experience
+- user persona : Multimodal RAG 시스템의 성능 평가를 하는 사용자
+- key user flow : 여러 세트의 PDF를 입력한 뒤 단일 쿼리 및 복수 쿼리를 통해 원하는 답이 잘 나오는지, 얼마나 나오는지를 판단
+- considerations : 여러 세트의 PDF를 입력하기 때문에 이것들을 별도의 knowledge 단위로 관리되어야 하고, 이미지 변환이나 임베딩 처리 등은 시간이 오래 소요되는 부분이기 때문에 중복작업이 없도록 처리한 문서에 대한 관리가 잘 되어야 함
+query의 임베딩, image파일의 임베딩, 유사도 측정 등은 샘플을 참고해서 구현
+</context>
+<PRD>
+# Functionalities
+UI는 streamit으로 만들어줘 
+	- input
+		- input 파일은 여러개 동시에 입력 받을 수 있도록 해주고, 입력한 파일은 재사용 및 관리를 위해 프로젝트 하위에 특정 폴더에 저장해야해
+		- PDF를 입력받으면 해당 PDF를 페이지 단위로 image로 변환해서 마찬가지로 하위에 이미지 파일을 저장해야해
+		- 저장한 이미지들을 Image Embedding으로 변환하고 그 결과 vector를 재사용할 수 있도록 로컬에 저장해야해(local vector db 사용해줘)
+		- PDF 입력, Image 변환, Embedding Vector 변환 및 Local 저장에 대해서 사용자가 이미 처리한 pdf 파일에 대해서 입력하는 경우는 체크해서 중복작업을 막아줘야하고, 처리 중단된 작업에 대해서는 이어서 작업하거나 또는 해당 파일 처음부터 작업할 수 있도록 관리가 되어야 해
+		- pdf파일, images, embedding vector를 knowledge라는 단위로 관리하고 싶어, input file을 등록할때는 knowledge를 먼저 생성하거나(최초), 선택하고 등록하고 해당 knowledge 단위로 독립적으로 pdf파일과 images, embedding 이 관리되어야 해
+	- Search
+		- 사용자의 쿼리는 단일 쿼리로 질의도 가능하고, 대규모 테스트를 위해 CSV파일이나 Json 파일로도 입력 받을 수 있어야해
+		- 단일 쿼리나 파일 기반 쿼리 모두 사용자가 원하는 유사 이미지 수를 입력 받을 수 있어야 해(top k)
+		- 사용자가 검색할 knowledge를 선택하면 해당 knowledge embedding 파일(또는 vector db)을 대상으로 유사도 검색을 수행해야해
+		- csv 또는 json 파일을 입력 받으면 결과를 위해 파일 구조를 파악해서 Question, target file, target page에 해당하는 column을 입력받아야 해, question은 필수 값이지만, target file이나 target page는 없을 수 있어서 optional 처리가 되어야 해  
+	- output
+		- 단일쿼리의 결과는 입력받은 top k 수만큼 검색된 이미지를 파일명과 페이지와 함께 출력해서 보여줘야해
+		- 대규모 쿼리는 target file, target page를 입력받은 경우 top k 이미지의 파일명과 target file과 target page를 비교해서 top k내에 하나라도 맞는 이미지가 있을 경우 정답을 찾은 케이스로 보고 전체 쿼리에서 몇개 맞췄는지를 요약해서 보여주고, 각 쿼리별로 맞춘 경우와 아닌 경우를 보여줘야해 
+		- 그리고 최종 결과에 대해서 csv 파일로 다운 받을 수 있게 해줘, column은 question, target_file, target_page, top k 결과 list(문서명과 페이지)
+	- Model Loading, Query와 Image Embedding 생성, 유사도 계산은 아래 코드를  참고해서 작성해줘 
+        Model Loading - 
+        model = ColQwen2_5.from_pretrained(
+                "Metric-AI/ColQwen2.5-3b-multilingual",
+                torch_dtype=torch.bfloat16,
+                device_map="cuda:0",  # or "mps" if on Apple Silicon
+            ).eval()
+        processor = ColQwen2_5_Processor.from_pretrained("Metric-AI/ColQwen2.5-3b-multilingual")
+
+        쿼리 처리 -
+        from colpali_engine.utils.torch_utils import ListDataset, get_torch_device  
+        from torch.utils.data import DataLoader  
+        import torch  
+        from typing import List, cast  
+        
+        start = time.time()  
+        
+        dataloader = DataLoader(  
+        dataset=ListDataset[str](queries),  
+        batch_size=1,  
+        shuffle=False,  
+        collate_fn=lambda x: processor.process_queries(x),  
+        )  
+        qs: List[torch.Tensor] = []  
+        for batch_query in tqdm(dataloader):  
+        with torch.no_grad():  
+        batch_query = {k: v.to(model.device) for k, v in batch_query.items()}  
+        embeddings_query = model(**batch_query)  
+        qs.append(embeddings_query)  
+        end = time.time()  
+        print(f"excution_time : {end-start}")  
+
+        이미지 처리 - 
+        vect_list = []  
+        start = time.time()  
+        
+        for k,images in all_images.items():  
+        # if k==2:  
+        # break  
+        vect_dict = {}  
+        dataloader = DataLoader(  
+        dataset=ListDataset[str]([image["image"] for image in images["images"]]),  
+        batch_size=1,  
+        shuffle=False,  
+        collate_fn=lambda x: processor.process_images(x),  
+        )  
+        
+        vect_dict["doc_id"] = images["doc_id"]  
+        vect_dict["file_name"] = images["file_name"]  
+        
+        ds: List[torch.Tensor] = []  
+        for i,batch_doc in tqdm(enumerate(dataloader)):  
+        with torch.no_grad():  
+        batch_doc = {k: v.to(model.device) for k, v in batch_doc.items()}  
+        embeddings_doc = model(**batch_doc)  
+        ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))  
+        vect_dict["colbert_vecs"] = ds  
+        vect_list.append(vect_dict)  
+        end = time.time()  
+        print(f"excution_time : {end-start}")  
+
+        쿼리와 이미지 유사도 계산 -
+        def rag(q,docs,k):  
+        result = []  
+        scores = processor.score_multi_vector(q,docs)  
+        scores = scores[0].sort(descending=True)  
+        for i in range(k):  
+        result.append({"file_name":file_names[scores.indices[i]],  
+        "page_nums":page_nums[scores.indices[i]],  
+        "score":scores.values[i],  
+        "index":scores.indices[i],  
+        "doc_id":doc_ids[scores.indices[i]]  
+        })  
+</PRD>
+
