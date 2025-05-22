@@ -436,18 +436,18 @@ def show_images(knowledge_id):
                                help="지정한 개수만큼 이미지가 처리될 때마다 중간 결과를 저장합니다.")
         
         # 이미지 최대 크기
-        max_image_size = st.slider("이미지 최대 크기(px)", min_value=512, max_value=2048, value=1024, step=128,
-                                help="큰 이미지는 지정한 크기로 자동 리사이즈됩니다. 메모리 사용량 감소에 도움됩니다.")
-        
+        col3, col4 = st.columns(2)
+        with col3:
+            use_original_image = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="embedding_use_original")
+        with col4:
+            max_image_size = st.slider("이미지 최대 크기(px)", min_value=512, max_value=2048, value=1024, step=128, disabled=use_original_image, key="embedding_max_size", help="큰 이미지는 지정한 크기로 자동 리사이즈됩니다. 메모리 사용량 감소에 도움됩니다.")
         # 기기 정보 표시
         device_info = "CPU"
         if torch.cuda.is_available():
             device_info = f"GPU ({torch.cuda.get_device_name(0)})"
         elif torch.backends.mps.is_available():
             device_info = "Apple Silicon (MPS)"
-            
         st.info(f"임베딩 생성에 사용할 기기: {device_info}")
-        
         if st.button("임베딩 생성", type="primary", use_container_width=True):
             # 이미지 파일 수 확인
             image_files = KnowledgeModel.list_images(knowledge_id)
@@ -456,20 +456,16 @@ def show_images(knowledge_id):
             else:
                 # 진행 상태 표시 컨테이너
                 progress_container = st.container()
-                
                 # 상태 텍스트
                 status_text = progress_container.empty()
                 status_text.markdown("임베딩 생성 준비 중...")
-                
                 # 진행률
                 progress_bar = progress_container.progress(0)
-                
                 # 진행 상태 업데이트 함수
                 def update_embedding_progress(current, total, message):
                     progress = current / max(1, total)
                     progress_bar.progress(progress)
                     status_text.markdown(f"**상태:** {message}")
-                
                 with st.spinner("이미지 임베딩 생성 중... (시간이 오래 걸릴 수 있습니다)"):
                     try:
                         # 임베딩 생성
@@ -477,7 +473,7 @@ def show_images(knowledge_id):
                             knowledge_id, 
                             batch_size=batch_size,
                             progress_callback=update_embedding_progress,
-                            max_image_size=max_image_size,
+                            max_image_size=None if use_original_image else max_image_size,
                             save_interval=save_interval,
                             low_memory_mode=low_memory_mode
                         )
