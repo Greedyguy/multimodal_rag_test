@@ -440,7 +440,7 @@ def show_images(knowledge_id):
         with col3:
             use_original_image = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="embedding_use_original")
         with col4:
-            max_image_size = st.slider("이미지 최대 크기(px)", min_value=512, max_value=2048, value=1024, step=128, disabled=use_original_image, key="embedding_max_size", help="큰 이미지는 지정한 크기로 자동 리사이즈됩니다. 메모리 사용량 감소에 도움됩니다.")
+            max_image_size = st.slider("이미지 최대 크기(px)", min_value=512, max_value=4096, value=1024, step=128, disabled=use_original_image, key="embedding_max_size", help="큰 이미지는 지정한 크기로 자동 리사이즈됩니다. 메모리 사용량 감소에 도움됩니다.")
         # 기기 정보 표시
         device_info = "CPU"
         if torch.cuda.is_available():

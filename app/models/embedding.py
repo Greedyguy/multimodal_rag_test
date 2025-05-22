@@ -153,14 +153,17 @@ class EmbeddingManager:
         if max_size is None:
             return img  # 무조건 원본 반환
         width, height = img.size
+        # max_size가 원본보다 크거나 같으면 원본 반환
         if width <= max_size and height <= max_size:
             return img
+        if width <= max_size or height <= max_size:
+            return img
         if width > height:
-            new_width = max_size
-            new_height = int(height * max_size / width)
+            new_width = min(max_size, width)
+            new_height = int(height * new_width / width)
         else:
-            new_height = max_size
-            new_width = int(width * max_size / height)
+            new_height = min(max_size, height)
+            new_width = int(width * new_height / height)
         print(f"이미지 리사이즈: {width}x{height} -> {new_width}x{new_height} (max_size={max_size})")
         return img.resize((new_width, new_height), Image.LANCZOS)
     
