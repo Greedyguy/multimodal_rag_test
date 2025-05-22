@@ -303,7 +303,7 @@ def show_pdf_files(knowledge_id):
                 # 전체 진행률 업데이트 (ZeroDivisionError 방지)
                 if total_pages == 0 or total_files == 0:
                     overall_progress.progress(0.0)
-                    st.warning(f"진행률 계산 중 0으로 나누기 발생: total_pages={total_pages}, total_files={total_files}. 파일을 확인하세요.")
+                    st.warning(f"진행률 계산 중 0으로 나누기 발생: total_pages={total_pages}, total_files={total_files}. {current_file} 파일을 확인하세요.")
                 else:
                     overall_progress.progress((file_index + (current_page / total_pages)) / total_files)
             
