@@ -69,21 +69,6 @@ def render_single_search(knowledge_id: str):
         top_k = st.slider("표시할 결과 수", min_value=1, max_value=20, value=5,
                         help="검색 결과로 표시할 이미지 개수")
     
-    # 이미지 크기 옵션 추가
-    with st.expander("이미지 크기 설정", expanded=False):
-        use_original = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="resize_option_single")
-        resize_size = None
-        if not use_original:
-            resize_size = st.number_input("최대 이미지 크기(px)", min_value=128, max_value=4096, value=1024, step=64, help="이미지 임베딩 생성 시 리사이즈할 최대 크기. 원본 사용 시 무시됨.")
-    
-    # 고급 검색 옵션
-    with st.expander("고급 검색 옵션", expanded=False):
-        normalize = st.checkbox("점수 정규화", value=True, key="normalize_single_search",
-                               help="검색 결과 점수를 0~1 범위로 정규화합니다.")
-        
-        doc_filter = st.text_input("문서 ID 필터", 
-                                 help="특정 문서 ID만 검색 (빈칸이면 전체 검색)")
-    
     # 검색 버튼
     search_button = st.button("검색")
     
@@ -116,6 +101,8 @@ def render_single_search(knowledge_id: str):
                         st.info(f"총 {total_embeddings}개의 이미지 임베딩이 로드되었습니다.")
                         
                         # 문서 ID 필터링
+                        doc_filter = st.text_input("문서 ID 필터", 
+                                 help="특정 문서 ID만 검색 (빈칸이면 전체 검색)")
                         if doc_filter:
                             filtered_indices = [i for i, doc_id in enumerate(embeddings_data["doc_ids"]) if doc_filter in doc_id]
                             
@@ -150,8 +137,7 @@ def render_single_search(knowledge_id: str):
                             query_text=query,
                             model=embedding_manager.model,
                             processor=embedding_manager.processor,
-                            device=embedding_manager.device,
-                            max_image_size=None if use_original else resize_size
+                            device=embedding_manager.device
                         )
                         
                         if query_embedding is None:
@@ -171,7 +157,7 @@ def render_single_search(knowledge_id: str):
                         )
                         
                         # 점수 정규화
-                        if normalize and results:
+                        if results:
                             results = normalize_scores(results)
                         
                         end_time = time.time()
@@ -274,13 +260,6 @@ def render_batch_search(knowledge_id: str):
             with col2:
                 normalize = st.checkbox("점수 정규화", value=True, key="normalize_batch_search",
                                        help="검색 결과 점수를 0~1 범위로 정규화합니다.")
-            
-            # 이미지 크기 옵션 추가
-            with st.expander("이미지 크기 설정", expanded=False):
-                use_original_batch = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="resize_option_batch")
-                resize_size_batch = None
-                if not use_original_batch:
-                    resize_size_batch = st.number_input("최대 이미지 크기(px) (일괄)", min_value=128, max_value=4096, value=1024, step=64, key="resize_size_batch", help="이미지 임베딩 생성 시 리사이즈할 최대 크기. 원본 사용 시 무시됨.")
             
             # 검색 실행 버튼
             run_batch_search = st.button("일괄 검색 실행")
@@ -412,8 +391,7 @@ def render_batch_search(knowledge_id: str):
                             query_text=question,
                             model=embedding_manager.model,
                             processor=embedding_manager.processor,
-                            device=embedding_manager.device,
-                            max_image_size=None if use_original_batch else resize_size_batch
+                            device=embedding_manager.device
                         )
                         
                         if query_embedding is None:
