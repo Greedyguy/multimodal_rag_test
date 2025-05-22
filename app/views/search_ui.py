@@ -11,6 +11,7 @@ import time
 import tempfile
 import os
 import json
+import unicodedata
 
 from app.models.embedding import EmbeddingManager
 from app.utils.query import process_query, find_similar_images, normalize_scores, parse_query_file
@@ -68,7 +69,14 @@ def render_single_search(knowledge_id: str):
         top_k = st.slider("표시할 결과 수", min_value=1, max_value=20, value=5,
                         help="검색 결과로 표시할 이미지 개수")
     
-                # 고급 검색 옵션
+    # 이미지 크기 옵션 추가
+    with st.expander("이미지 크기 설정", expanded=False):
+        use_original = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="resize_option_single")
+        resize_size = None
+        if not use_original:
+            resize_size = st.number_input("최대 이미지 크기(px)", min_value=128, max_value=4096, value=1024, step=64, help="이미지 임베딩 생성 시 리사이즈할 최대 크기. 원본 사용 시 무시됨.")
+    
+    # 고급 검색 옵션
     with st.expander("고급 검색 옵션", expanded=False):
         normalize = st.checkbox("점수 정규화", value=True, key="normalize_single_search",
                                help="검색 결과 점수를 0~1 범위로 정규화합니다.")
@@ -142,7 +150,8 @@ def render_single_search(knowledge_id: str):
                             query_text=query,
                             model=embedding_manager.model,
                             processor=embedding_manager.processor,
-                            device=embedding_manager.device
+                            device=embedding_manager.device,
+                            max_image_size=None if use_original else resize_size
                         )
                         
                         if query_embedding is None:
@@ -265,6 +274,13 @@ def render_batch_search(knowledge_id: str):
             with col2:
                 normalize = st.checkbox("점수 정규화", value=True, key="normalize_batch_search",
                                        help="검색 결과 점수를 0~1 범위로 정규화합니다.")
+            
+            # 이미지 크기 옵션 추가
+            with st.expander("이미지 크기 설정", expanded=False):
+                use_original_batch = st.checkbox("원본 이미지 사용 (리사이즈 없음)", value=False, key="resize_option_batch")
+                resize_size_batch = None
+                if not use_original_batch:
+                    resize_size_batch = st.number_input("최대 이미지 크기(px) (일괄)", min_value=128, max_value=4096, value=1024, step=64, key="resize_size_batch", help="이미지 임베딩 생성 시 리사이즈할 최대 크기. 원본 사용 시 무시됨.")
             
             # 검색 실행 버튼
             run_batch_search = st.button("일괄 검색 실행")
@@ -396,7 +412,8 @@ def render_batch_search(knowledge_id: str):
                             query_text=question,
                             model=embedding_manager.model,
                             processor=embedding_manager.processor,
-                            device=embedding_manager.device
+                            device=embedding_manager.device,
+                            max_image_size=None if use_original_batch else resize_size_batch
                         )
                         
                         if query_embedding is None:
@@ -447,9 +464,31 @@ def render_batch_search(knowledge_id: str):
                                 r["real_page_num"] = r.get("page_num", "?")
                         # 정답 판정
                         is_correct = False
+                        def norm(s):
+                            if s is None:
+                                return None
+                            return unicodedata.normalize('NFC', str(s))
+                        def extract_base_pdf_name(image_file_name):
+                            # 예: "문서명_page_1.png" → "문서명"
+                            stem = Path(image_file_name).stem
+                            if "_page_" in stem:
+                                base = stem.split("_page_")[0]
+                                return base
+                            return stem
                         for r in result["results"]:
-                            file_match = (result["target_file"] is None or r["real_file_name"] == str(result["target_file"]))
-                            page_match = (result["target_page"] is None or str(r["real_page_num"]) == str(result["target_page"]))
+                            # 파일명 비교: 확장자/페이지 제외, 유니코드 normalize
+                            file_match = (
+                                result["target_file"] is None or
+                                norm(extract_base_pdf_name(r["real_file_name"])) == norm(Path(str(result["target_file"])).stem)
+                            )
+                            # 페이지 비교: int로 캐스팅
+                            try:
+                                page_match = (
+                                    result["target_page"] is None or
+                                    int(r["real_page_num"]) == int(result["target_page"])
+                                )
+                            except Exception:
+                                page_match = False
                             if file_match and page_match:
                                 is_correct = True
                                 break

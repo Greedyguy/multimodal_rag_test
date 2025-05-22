@@ -144,69 +144,46 @@ class EmbeddingManager:
     def resize_image_if_needed(self, img: Image.Image, max_size: int = 1024) -> Image.Image:
         """
         이미지 크기가 너무 크면 리사이즈
-        
         Args:
             img: PIL 이미지
-            max_size: 최대 폭/높이 (기본값 1024px)
-            
+            max_size: 최대 폭/높이 (기본값 1024px, None이면 리사이즈 안함)
         Returns:
             리사이즈된 이미지 또는 원본 이미지
         """
+        if max_size is None:
+            return img  # 무조건 원본 반환
         width, height = img.size
-        
-        # 이미 적절한 크기면 그대로 반환
         if width <= max_size and height <= max_size:
             return img
-        
-        # 가로세로 비율 유지하면서 크기 조정
         if width > height:
             new_width = max_size
             new_height = int(height * max_size / width)
         else:
             new_height = max_size
             new_width = int(width * max_size / height)
-        
         print(f"이미지 리사이즈: {width}x{height} -> {new_width}x{new_height} (max_size={max_size})")
         return img.resize((new_width, new_height), Image.LANCZOS)
     
     def get_image_embedding(self, image_path: Union[str, Path], max_image_size: int = 1024) -> Optional[torch.Tensor]:
         """
         이미지 임베딩 생성
-        
         Args:
             image_path: 이미지 파일 경로
-            max_image_size: 최대 이미지 크기 (px)
-            
+            max_image_size: 최대 이미지 크기 (px, None이면 리사이즈 안함)
         Returns:
             이미지 임베딩 텐서 또는 오류 시 None
         """
         try:
-            # 모델 로드 확인
             if self.model is None or self.processor is None:
                 if not self.load_model():
                     return None
-            
-            # 이미지 로드 및 전처리
             img = Image.open(image_path).convert("RGB")
-            
-            # 이미지가 너무 크면 리사이즈
             img = self.resize_image_if_needed(img, max_size=max_image_size)
-            
             processed_img = self.processor.process_images([img])
-            
-            # GPU로 이동
             processed_img = {k: v.to(self.device) for k, v in processed_img.items()}
-            
-            # 임베딩 생성
             with torch.no_grad():
                 embedding = self.model(**processed_img)
-            
-            # PRD 예시 코드와 일치하도록 unbind 적용
-            # PRD 코드: ds.extend(list(torch.unbind(embeddings_doc.to("cpu"))))
             unbinded_embeddings = list(torch.unbind(embedding.to("cpu").detach()))
-            
-            # 단일 이미지에서 unbind 결과는 유사하게 리스트로 반환
-            # 단일 문서에 대한 embedding은 리스트의 첫 번째 항목으로 처리
             if unbinded_embeddings:
                 return unbinded_embeddings
             else:
@@ -246,16 +223,14 @@ class EmbeddingManager:
                       low_memory_mode: bool = True) -> Dict[str, Any]:
         """
         여러 이미지의 임베딩 생성 - PRD 예시 코드에 맞춘 버전
-        
         Args:
             image_paths: 이미지 파일 경로 리스트
             batch_size: 사용하지 않음 (이전 버전과의 호환성을 위해 유지)
             progress_callback: 진행 상태를 보고하는 콜백 함수
             save_interval: 중간 저장할 이미지 간격 (기본값 50, 0이면 중간 저장 안함)
             temp_output_dir: 중간 결과 저장 디렉토리 (None이면 임시 디렉토리 사용)
-            max_image_size: 이미지 최대 크기 (px)
+            max_image_size: 이미지 최대 크기 (px, None이면 리사이즈 안함)
             low_memory_mode: 저메모리 모드 활성화 (기본값 True)
-            
         Returns:
             이미지 경로와 임베딩을 포함한 딕셔너리
         """
