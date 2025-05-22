@@ -296,9 +296,16 @@ def show_pdf_files(knowledge_id):
                 if total_pages > 0:
                     file_progress.progress(current_page / total_pages)
                     status_text.markdown(f"**페이지 진행률:** {current_page}/{total_pages} 페이지")
+                else:
+                    file_progress.progress(0.0)
+                    status_text.markdown(f"**페이지 진행률:** 0/{total_pages} 페이지 (경고: 페이지 수가 0입니다)")
                 
-                # 전체 진행률 업데이트
-                overall_progress.progress((file_index + (current_page / total_pages)) / total_files)
+                # 전체 진행률 업데이트 (ZeroDivisionError 방지)
+                if total_pages == 0 or total_files == 0:
+                    overall_progress.progress(0.0)
+                    st.warning(f"진행률 계산 중 0으로 나누기 발생: total_pages={total_pages}, total_files={total_files}. 파일을 확인하세요.")
+                else:
+                    overall_progress.progress((file_index + (current_page / total_pages)) / total_files)
             
             # 이미지 변환 실행
             with st.spinner("모든 PDF를 이미지로 변환 중..."):
